@@ -48,8 +48,10 @@ void ospi_recv(ospi_flash_cfg_t *ospi_cfg, uint32_t command, uint8_t *buffer);
 void ospi_push(ospi_flash_cfg_t *ospi_cfg, uint32_t data);
 void ospi_send(ospi_flash_cfg_t *ospi_cfg, uint32_t data);
 void ospi_setup_write(ospi_flash_cfg_t *ospi_cfg, uint32_t addr_len);
+void ospi_setup_write_ddr16(ospi_flash_cfg_t *ospi_cfg, uint32_t addr_len);
 void ospi_setup_write_sdr(ospi_flash_cfg_t *ospi_cfg, uint32_t addr_len);
 void ospi_setup_read(ospi_flash_cfg_t *ospi_cfg, uint32_t addr_len, uint32_t read_len, uint32_t wait_cycles);
+void ospi_setup_read_sdr(ospi_flash_cfg_t *ospi_cfg, uint32_t addr_len, uint32_t read_len, uint32_t wait_cycles);
 void ospi_xip_exit(ospi_flash_cfg_t *ospi_cfg, uint16_t incr_command, uint16_t wrap_command);
 
 

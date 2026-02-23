@@ -122,6 +122,40 @@ void ospi_setup_write_sdr(ospi_flash_cfg_t *ospi_cfg, uint32_t addr_len)
 }
 
 /**
+  \fn        void ospi_setup_read_sdr(ospi_flash_cfg_t *ospi_cfg, uint32_t addr_len, uint32_t read_len, uint32_t wait_cycles)
+  \brief     Set up for Flash read operation in standard SPI (1-1-1) mode
+  \param[in] ospi_cfg : OSPI configuration structure
+  \param[in] addr_len : Address length
+  \param[in] read_len : No. of bytes to be read
+  \param[in] wait_cycles : Cycles required to read the data
+  \return    none
+*/
+void ospi_setup_read_sdr(ospi_flash_cfg_t *ospi_cfg, uint32_t addr_len, uint32_t read_len, uint32_t wait_cycles)
+{
+    uint32_t val;
+
+    ospi_writel(ospi_cfg, ser, 0);
+    spi_disable(ospi_cfg);
+
+    val = CTRLR0_IS_MST
+        |(SINGLE << CTRLR0_SPI_FRF_OFFSET)
+        |(TMOD_RO << CTRLR0_TMOD_OFFSET)
+        |(CTRLR0_DFS_8bit << CTRLR0_DFS_OFFSET);
+
+    ospi_writel(ospi_cfg, ctrlr0, val);
+    ospi_writel(ospi_cfg, ctrlr1, read_len - 1);
+
+    val = TRANS_TYPE_STANDARD
+        |(CTRLR0_INST_L_8bit << CTRLR0_INST_L_OFFSET)
+        |(addr_len << CTRLR0_ADDR_L_OFFSET)
+        |(wait_cycles << CTRLR0_WAIT_CYCLES_OFFSET);
+
+    ospi_writel(ospi_cfg, spi_ctrlr0, val);
+    ospi_cfg->rx_req = read_len;
+    spi_enable(ospi_cfg);
+}
+
+/**
   \fn        void ospi_setup_write(ospi_flash_cfg_t *ospi_cfg, uint32_t addr_len)
   \brief     Set up for Flash write operation
   \param[in] ospi_cfg : OSPI configuration structure
@@ -158,6 +192,40 @@ void ospi_setup_write(ospi_flash_cfg_t *ospi_cfg, uint32_t addr_len)
             |(addr_len << CTRLR0_ADDR_L_OFFSET)
             |(0 << CTRLR0_WAIT_CYCLES_OFFSET);
     }
+
+    ospi_writel(ospi_cfg, spi_ctrlr0, val);
+    spi_enable(ospi_cfg);
+}
+
+/**
+  \fn        void ospi_setup_write_ddr16(ospi_flash_cfg_t *ospi_cfg, uint32_t addr_len)
+  \brief     Set up for Flash write in DDR Octal mode with 16-bit data frames.
+             Required for page programming: DWC SSI in DDR Octal mode transfers
+             16 bits per clock cycle (8 lines x 2 edges), so DFS must be 16.
+  \param[in] ospi_cfg : OSPI configuration structure
+  \param[in] addr_len : Address length
+  \return    none
+*/
+void ospi_setup_write_ddr16(ospi_flash_cfg_t *ospi_cfg, uint32_t addr_len)
+{
+    uint32_t val;
+
+    ospi_writel(ospi_cfg, ser, 0);
+    spi_disable(ospi_cfg);
+
+    val = CTRLR0_IS_MST
+        |(OCTAL << CTRLR0_SPI_FRF_OFFSET)
+        |(TMOD_TO << CTRLR0_TMOD_OFFSET)
+        |(CTRLR0_DFS_16bit << CTRLR0_DFS_OFFSET);
+
+    ospi_writel(ospi_cfg, ctrlr0, val);
+    ospi_writel(ospi_cfg, ctrlr1, 0);
+
+    val = TRANS_TYPE_FRF_DEFINED
+        |((ospi_cfg->ddr_en) << CTRLR0_SPI_DDR_EN_OFFSET)
+        |(CTRLR0_INST_L_8bit << CTRLR0_INST_L_OFFSET)
+        |(addr_len << CTRLR0_ADDR_L_OFFSET)
+        |(0 << CTRLR0_WAIT_CYCLES_OFFSET);
 
     ospi_writel(ospi_cfg, spi_ctrlr0, val);
     spi_enable(ospi_cfg);
