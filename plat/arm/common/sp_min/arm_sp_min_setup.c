@@ -64,10 +64,10 @@ entry_point_info_t *sp_min_plat_get_bl33_ep_info(void)
 void arm_sp_min_early_platform_setup(void *from_bl2, uintptr_t tos_fw_config,
 			uintptr_t hw_config, void *plat_params_from_bl2)
 {
-
 #ifdef PLAT_DEVKIT_E7
 	configure_devkit_uart_pinmux_padconf();
 #endif
+
 	/* Initialize the console to provide early debug support */
 	arm_console_boot_init();
 

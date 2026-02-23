@@ -29,6 +29,9 @@ const mmap_region_t plat_arm_mmap[] = {
 	SE_MHU0_RECV_DEVICE,
 	MHU0_PAYLOAD_MAP,
 	LPGPIO_MAP_DEVICE,
+#if FLASH_EN
+	OSPI1_XIP_MAP,
+#endif
 	{0}
 };
 

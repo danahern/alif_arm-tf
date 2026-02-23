@@ -224,8 +224,152 @@ static int setup_flash_xip(void)
 	if (flash_xip_init(ospi_cfg)) {
 		return -1;
 	}
+
+#if !AES_EN
+	/* SE enables AES decrypt during boot — clear it after XIP setup
+	 * for unencrypted flash. Must be AFTER ospi_xip_enable(). */
+	ospi_cfg->aes_regs->aes_control &= ~AES_CONTROL_DECRYPT_EN;
+#endif
+
 	return 0;
 }
+
+#if FLASH_EN
+/* OSPI flash programming support - program from MRAM staging area */
+
+#define OSPI_PROG_MAGIC		0x4F535049	/* "OSPI" */
+#define OSPI_PROG_FLAG_ADDR	0x8000E000	/* Must be past BL32 XIP end (~0x8000A000) */
+#define OSPI_SECTOR_SIZE	0x10000		/* 64KB */
+#define OSPI_PAGE_SIZE		250		/* Keep under 256-entry TX FIFO with cmd+addr overhead */
+#define OSPI_WIP_BIT		0x01
+#define OSPI_ERASE_TIMEOUT	2000000		/* ~2s in poll loops */
+#define OSPI_PROG_TIMEOUT	50000		/* ~5ms in poll loops */
+
+struct ospi_prog_hdr {
+	uint32_t magic;
+	uint32_t dest_addr;
+	uint32_t length;
+	uint32_t src_addr;
+};
+
+static uint8_t issi_read_status(ospi_flash_cfg_t *ospi_cfg)
+{
+	uint8_t rBuff[256] = {0};
+
+	ospi_setup_read(ospi_cfg, ADDR_LENGTH_32_BITS, 1, 8);
+	ospi_push(ospi_cfg, ISSI_READ_STATUS_REG);
+	ospi_recv(ospi_cfg, 0x00, rBuff);
+	return rBuff[0];
+}
+
+static int issi_wait_ready(ospi_flash_cfg_t *ospi_cfg, uint32_t timeout)
+{
+	while (timeout--) {
+		if (!(issi_read_status(ospi_cfg) & OSPI_WIP_BIT))
+			return 0;
+	}
+	return -1;
+}
+
+static int issi_sector_erase(ospi_flash_cfg_t *ospi_cfg, uint32_t addr)
+{
+	ospi_write_en(ospi_cfg);
+	ospi_setup_write(ospi_cfg, ADDR_LENGTH_32_BITS);
+	ospi_push(ospi_cfg, ISSI_4BYTE_SECTOR_ERASE);
+	ospi_push(ospi_cfg, (addr >> 24) & 0xFF);
+	ospi_push(ospi_cfg, (addr >> 16) & 0xFF);
+	ospi_push(ospi_cfg, (addr >> 8) & 0xFF);
+	ospi_send(ospi_cfg, addr & 0xFF);
+
+	return issi_wait_ready(ospi_cfg, OSPI_ERASE_TIMEOUT);
+}
+
+static int issi_page_program(ospi_flash_cfg_t *ospi_cfg, uint32_t addr,
+			     const uint8_t *data, uint32_t len)
+{
+	uint32_t i;
+
+	if (len == 0 || len > OSPI_PAGE_SIZE)
+		return -1;
+
+	ospi_write_en(ospi_cfg);
+	ospi_setup_write(ospi_cfg, ADDR_LENGTH_32_BITS);
+	ospi_push(ospi_cfg, ISSI_4BYTE_PAGE_PROGRAM);
+	ospi_push(ospi_cfg, (addr >> 24) & 0xFF);
+	ospi_push(ospi_cfg, (addr >> 16) & 0xFF);
+	ospi_push(ospi_cfg, (addr >> 8) & 0xFF);
+	ospi_push(ospi_cfg, addr & 0xFF);
+
+	for (i = 0; i < len - 1; i++)
+		ospi_push(ospi_cfg, data[i]);
+
+	ospi_send(ospi_cfg, data[len - 1]);
+
+	return issi_wait_ready(ospi_cfg, OSPI_PROG_TIMEOUT);
+}
+
+static void ospi_program_from_mram(void)
+{
+	volatile struct ospi_prog_hdr *hdr =
+		(volatile struct ospi_prog_hdr *)OSPI_PROG_FLAG_ADDR;
+	ospi_flash_cfg_t *ospi_cfg = &ospi_flash_config;
+	uint32_t dest, src, remaining, chunk, sectors, i;
+
+	if (hdr->magic != OSPI_PROG_MAGIC)
+		return;
+
+	dest = hdr->dest_addr;
+	src = hdr->src_addr;
+	remaining = hdr->length;
+
+	NOTICE("OSPI PROG: %u bytes from 0x%x to 0x%x\n",
+	       remaining, src, dest);
+
+	/* Exit XIP mode for erase/program operations */
+	ospi_xip_exit(ospi_cfg, ISSI_DDR_OCTAL_IO_FAST_READ,
+		      ISSI_DDR_OCTAL_IO_FAST_READ);
+
+	/* Erase sectors */
+	sectors = (remaining + OSPI_SECTOR_SIZE - 1) / OSPI_SECTOR_SIZE;
+	for (i = 0; i < sectors; i++) {
+		NOTICE("OSPI PROG: erase sector %u/%u @ 0x%x\n",
+		       i + 1, sectors, dest + i * OSPI_SECTOR_SIZE);
+		if (issi_sector_erase(ospi_cfg, dest + i * OSPI_SECTOR_SIZE)) {
+			ERROR("OSPI PROG: erase timeout at 0x%x\n",
+			      dest + i * OSPI_SECTOR_SIZE);
+			goto reenter_xip;
+		}
+	}
+
+	/* Program pages */
+	i = 0;
+	while (remaining > 0) {
+		chunk = (remaining > OSPI_PAGE_SIZE) ? OSPI_PAGE_SIZE : remaining;
+
+		if (issi_page_program(ospi_cfg, dest, (const uint8_t *)src, chunk)) {
+			ERROR("OSPI PROG: program timeout at 0x%x\n", dest);
+			goto reenter_xip;
+		}
+
+		dest += chunk;
+		src += chunk;
+		remaining -= chunk;
+		i++;
+		if ((i % 1000) == 0)
+			NOTICE("OSPI PROG: %u pages written\n", i);
+	}
+
+	NOTICE("OSPI PROG: complete, %u pages written\n", i);
+
+	/* Clear magic to prevent re-programming on next boot */
+	hdr->magic = 0;
+
+reenter_xip:
+	/* Re-enter XIP mode */
+	ospi_xip_enter(ospi_cfg, ISSI_DDR_OCTAL_IO_FAST_READ,
+		       ISSI_DDR_OCTAL_IO_FAST_READ);
+}
+#endif /* FLASH_EN */
 
 /* Init Flash and set to XiP Mode */
 int init_nor_flash(void)
@@ -246,6 +390,11 @@ int init_nor_flash(void)
 		ERROR("Unable to set OSPI flash in XiP mode\n");
 		return -1;
 	}
+
+#if FLASH_EN
+	ospi_program_from_mram();
+#endif
+
 	INFO("Configured OSPI NOR Flash successfully\n");
 	return 0;
 }

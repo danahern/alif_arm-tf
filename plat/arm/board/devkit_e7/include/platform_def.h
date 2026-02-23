@@ -170,6 +170,15 @@
 					MT_MEMORY | MT_RW | MT_SECURE)
 #endif
 
+#if FLASH_EN
+#define OSPI1_XIP_ADDR			(0xC0000000)
+#define OSPI1_XIP_SIZE			(0x04000000)
+#define OSPI1_XIP_MAP			MAP_REGION_FLAT(		\
+						OSPI1_XIP_ADDR,		\
+						OSPI1_XIP_SIZE,		\
+						MT_MEMORY | MT_RO | MT_NS)
+#endif
+
 #define AES0_BASE_ADDR			(0x83001000)
 #define AES0_SIZE			(0x1000)
 #define AES0_MAP_DEVICE			MAP_REGION_FLAT(		\

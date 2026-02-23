@@ -166,13 +166,30 @@ uintptr_t get_arm_std_svc_args(unsigned int svc_mask)
  * The SP_MIN main function. Do the platform and PSCI Library setup. Also
  * initialize the runtime service framework.
  *****************************************************************************/
+/* Debug markers at SRAM 0x02001000 — readable from M55 JLink.
+ * Must flush D-cache since SRAM is mapped cacheable (MT_MEMORY). */
+#define DBG_MARKER(val) do { \
+	*(volatile uint32_t *)0x02001000 = (val); \
+	clean_dcache_range(0x02001000, 4); \
+} while (0)
+#define DBG_MARKER2(val) do { \
+	*(volatile uint32_t *)0x02001004 = (val); \
+	clean_dcache_range(0x02001004, 4); \
+} while (0)
+
 void sp_min_main(void)
 {
+	DBG_MARKER(0x11111111);  /* Entered sp_min_main */
+
 	NOTICE("SP_MIN: %s\n", version_string);
 	NOTICE("SP_MIN: %s\n", build_message);
 
+	DBG_MARKER(0x22222222);  /* After NOTICE prints */
+
 	/* Perform the SP_MIN platform setup */
 	sp_min_platform_setup();
+
+	DBG_MARKER(0x33333333);  /* After platform_setup */
 
 	/* Initialize the runtime services e.g. psci */
 	INFO("SP_MIN: Initializing runtime services\n");
@@ -190,13 +207,20 @@ void sp_min_main(void)
 	 */
 	sp_min_plat_runtime_setup();
 
+	DBG_MARKER(0x44444444);  /* Before init_nor_flash */
+
 #if FLASH_EN
 	if (init_nor_flash()) {
+		DBG_MARKER(0xDEAD0001);  /* init_nor_flash FAILED */
 		ERROR("%s: OSPI1 NOR flash initialization failed\n",
 			__func__);
 		panic();
 	}
+	DBG_MARKER(0x55555555);  /* After init_nor_flash OK */
+	/* Read first word from OSPI XIP and store as marker2 */
+	DBG_MARKER2(*(volatile uint32_t *)0xC0000000);
 #endif
+	DBG_MARKER(0x66666666);  /* Before console_flush / jump to BL33 */
 	console_flush();
 }
 
