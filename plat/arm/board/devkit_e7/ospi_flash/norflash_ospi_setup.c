@@ -270,24 +270,42 @@ static void ospi_write_en_ddr16(ospi_flash_cfg_t *ospi_cfg)
 	ospi_send(ospi_cfg, ISSI_WRITE_ENABLE);
 }
 
-extern void delay_in_us(uint32_t delay);
-
-/* Wait for erase completion using fixed delay.
- * Status register read with DFS=8 returns 0 in DDR Octal mode (DFS mismatch),
- * so we cannot poll WIP. Use conservative fixed delays instead.
- * IS25WX256 sector erase typical: 100ms, max: 2000ms. */
-static int issi_wait_erase(void)
+/* Read Status Register (0x05) in DDR Octal mode.
+ * IS25WX256 status register: bit 0 = WIP (Write In Progress).
+ * Note: ISSI does NOT implement Flag Status Register (0x70) — that's Micron.
+ * Uses existing DFS=8 ospi_setup_read/ospi_recv which work in DDR mode. */
+static uint8_t issi_read_status(ospi_flash_cfg_t *ospi_cfg)
 {
-	delay_in_us(500000);	/* 500ms */
-	return 0;
+	uint8_t sr;
+
+	ospi_setup_read(ospi_cfg, ADDR_LENGTH_0_BITS, 1, 8);
+	ospi_recv(ospi_cfg, ISSI_READ_STATUS_REG, &sr);
+	return sr;
 }
 
-/* Wait for page program completion using fixed delay.
- * IS25WX256 page program typical: 0.3ms, max: 5ms. */
-static int issi_wait_program(void)
+/* Wait for erase completion by polling Status Register WIP bit.
+ * IS25WX256 sector erase typical: 100ms, max: 2000ms. */
+static int issi_wait_erase(ospi_flash_cfg_t *ospi_cfg)
 {
-	delay_in_us(2000);	/* 2ms */
-	return 0;
+	uint32_t timeout = 2000000;
+	while (timeout--) {
+		if (!(issi_read_status(ospi_cfg) & 0x01))
+			return 0;
+	}
+	return -1;
+}
+
+/* Wait for page program completion by polling Status Register WIP bit.
+ * IS25WX256 page program typical: 0.3ms, max: 5ms. */
+static int issi_wait_program(ospi_flash_cfg_t *ospi_cfg)
+{
+	uint32_t timeout = 200000;
+	while (timeout--) {
+		uint8_t sr = issi_read_status(ospi_cfg);
+		if (!(sr & 0x01))	/* WIP=0 → ready */
+			return 0;
+	}
+	return -1;
 }
 
 /* Erase 64KB block in DDR Octal mode.
@@ -299,7 +317,7 @@ static int issi_sector_erase_ddr(ospi_flash_cfg_t *ospi_cfg, uint32_t addr)
 	ospi_push(ospi_cfg, ISSI_4BYTE_SECTOR_ERASE);
 	ospi_send(ospi_cfg, addr);
 
-	return issi_wait_erase();
+	return issi_wait_erase(ospi_cfg);
 }
 
 /* Page program in OPI DDR mode using 0x12 (Page Program).
@@ -332,7 +350,7 @@ static int issi_page_program_ddr(ospi_flash_cfg_t *ospi_cfg, uint32_t addr,
 	else
 		ospi_send(ospi_cfg, data[len - 2] | (data[len - 1] << 8));
 
-	return issi_wait_program();
+	return issi_wait_program(ospi_cfg);
 }
 
 /* Returns 1 if flash was programmed (caller must re-init OSPI), 0 otherwise. */
@@ -360,6 +378,12 @@ static int ospi_program_from_mram(void)
 	/* Exit XIP mode (flash stays in DDR Octal) */
 	ospi_xip_exit(ospi_cfg, ISSI_DDR_OCTAL_IO_FAST_READ,
 		      ISSI_DDR_OCTAL_IO_FAST_READ);
+
+	/* Re-init controller for command mode.
+	 * ospi_xip_exit() leaves rx_sample_dly=0 (set by xip_enter for RXDS)
+	 * and other XIP-related register state. ospi_init() restores
+	 * rx_sample_dly=4, txd_drive_edge=1, and clock for command mode. */
+	ospi_init(ospi_cfg);
 
 	/* Erase sectors in DDR Octal mode */
 	sectors = (remaining + OSPI_SECTOR_SIZE - 1) / OSPI_SECTOR_SIZE;
