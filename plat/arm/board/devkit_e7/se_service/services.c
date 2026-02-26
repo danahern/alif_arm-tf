@@ -149,3 +149,96 @@ int service_ospi_write_aes_key(void)
 	INFO("AES encryption key wrote to decryption register\n");
 	return 0;
 }
+
+/* USB PHY power gating bit in AIPM run profile phy_pwr_gating field */
+#define USB_PHY_MASK                    (1 << 1)
+
+/* @brief Function which sends SE AIPM service requests through MHU0
+ *        to enable USB PHY power gating. Uses GET-then-SET pattern:
+ *        1. GET current run profile from SE
+ *        2. OR in USB_PHY_MASK to phy_pwr_gating
+ *        3. SET the modified profile back
+ *
+ *        Without this call, the SE keeps USB PHY power gated and the
+ *        DWC3 USB controller cannot drive the bus.
+ * returns,
+ * 0   - Success.
+ * -1  - Failure.
+ */
+int service_enable_usb_phy(void)
+{
+	aipm_get_run_profile_svc_t *get_req =
+		(aipm_get_run_profile_svc_t *) MHU0_PAYLOAD_ADDR;
+	aipm_set_run_profile_svc_t *set_req =
+		(aipm_set_run_profile_svc_t *) MHU0_PAYLOAD_ADDR;
+
+	/* Sync with SE */
+	if (service_se_sync()) {
+		ERROR("service_se_sync failed for AIPM\n");
+		return -1;
+	}
+
+	/* Step 1: GET current run profile */
+	memset(get_req, 0x0, sizeof(aipm_get_run_profile_svc_t));
+	get_req->header.hdr_service_id = SERVICE_POWER_GET_RUN_REQ_ID;
+	mhu_secure_message_send(PLAT_SDK700_MHU0_SEND, CH_ID,
+				(uint32_t) get_req);
+	dmb();
+
+	delay_in_us(SYNC_DELAY);
+
+	if (((mmio_read_32(PLAT_SDK700_MHU0_SEND + CH_INT_ST0) &
+	     (1 << CH_ID)) == 0x0) ||
+	    ((mmio_read_32(PLAT_SDK700_MHU0_SEND + CH_INT_ST) &
+	     (1 << CH_ID)) == 0x0) ||
+	    (mmio_read_32(PLAT_SDK700_MHU0_SEND + CH_ST) != 0)) {
+		ERROR("AIPM GET_RUN failed\n");
+		mhu_secure_message_end(PLAT_SDK700_MHU0_SEND, 0);
+		return -1;
+	}
+
+	delay_in_us(READ_DELAY);
+	mmio_write_32(PLAT_SDK700_MHU0_RECV + CH_CLR, 0xFFFFFFFF);
+
+	INFO("AIPM GET_RUN: phy_pwr_gating=0x%x\n",
+	     get_req->resp_phy_pwr_gating);
+
+	/*
+	 * Step 2: SET run profile with USB PHY enabled.
+	 * GET and SET structs have identical field layouts at the same offsets,
+	 * so the GET response values serve directly as SET request values.
+	 * Only modify phy_pwr_gating and reset the header.
+	 */
+	set_req->send_phy_pwr_gating |= USB_PHY_MASK;
+	set_req->header.hdr_service_id = SERVICE_POWER_SET_RUN_REQ_ID;
+	set_req->header.hdr_flags = 0;
+	set_req->header.hdr_error_code = 0;
+	set_req->header.hdr_padding = 0;
+	mhu_secure_message_send(PLAT_SDK700_MHU0_SEND, CH_ID,
+				(uint32_t) set_req);
+	dmb();
+
+	delay_in_us(SYNC_DELAY);
+
+	if (((mmio_read_32(PLAT_SDK700_MHU0_SEND + CH_INT_ST0) &
+	     (1 << CH_ID)) == 0x0) ||
+	    ((mmio_read_32(PLAT_SDK700_MHU0_SEND + CH_INT_ST) &
+	     (1 << CH_ID)) == 0x0) ||
+	    (mmio_read_32(PLAT_SDK700_MHU0_SEND + CH_ST) != 0)) {
+		ERROR("AIPM SET_RUN failed\n");
+		mhu_secure_message_end(PLAT_SDK700_MHU0_SEND, 0);
+		return -1;
+	}
+
+	delay_in_us(READ_DELAY);
+	mmio_write_32(PLAT_SDK700_MHU0_RECV + CH_CLR, 0xFFFFFFFF);
+
+	mhu_secure_message_end(PLAT_SDK700_MHU0_SEND, 0);
+
+	delay_in_us(SYNC_DELAY / 2);
+
+	INFO("AIPM: USB PHY power enabled (phy_pwr_gating |= 0x%x)\n",
+	     USB_PHY_MASK);
+	return 0;
+}
+
