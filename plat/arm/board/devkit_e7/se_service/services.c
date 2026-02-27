@@ -172,23 +172,35 @@ int service_enable_usb_phy(void)
 {
 	aipm_get_run_profile_svc_t *get_req =
 		(aipm_get_run_profile_svc_t *) MHU0_PAYLOAD_ADDR;
-	aipm_set_run_profile_svc_t *set_req =
-		(aipm_set_run_profile_svc_t *) MHU0_PAYLOAD_ADDR;
-	aipm_get_run_profile_svc_t saved;
 
-	/* === Cycle 1: GET current run profile === */
+	/* === GET current run profile === */
 	if (service_se_sync()) {
-		ERROR("service_se_sync failed for AIPM GET\n");
+		ERROR("service_se_sync failed for USB PHY\n");
 		return -1;
 	}
 
+	NOTICE("USB PHY: sync done\n");
+
 	memset(get_req, 0x0, sizeof(aipm_get_run_profile_svc_t));
 	get_req->header.hdr_service_id = SERVICE_POWER_GET_RUN_REQ_ID;
+
+	NOTICE("USB PHY: sending GET (id=%u, size=%u)\n",
+	       (unsigned)SERVICE_POWER_GET_RUN_REQ_ID,
+	       (unsigned)sizeof(aipm_get_run_profile_svc_t));
+
 	mhu_secure_message_send(PLAT_SDK700_MHU0_SEND, CH_ID,
 				(uint32_t) get_req);
 	dmb();
 
+	NOTICE("USB PHY: send done, waiting\n");
+
 	delay_in_us(SYNC_DELAY);
+
+	NOTICE("USB PHY: delay done, checking status\n");
+	NOTICE("USB PHY: INT_ST0=0x%x INT_ST=0x%x CH_ST=0x%x\n",
+	       mmio_read_32(PLAT_SDK700_MHU0_SEND + CH_INT_ST0),
+	       mmio_read_32(PLAT_SDK700_MHU0_SEND + CH_INT_ST),
+	       mmio_read_32(PLAT_SDK700_MHU0_SEND + CH_ST));
 
 	if (((mmio_read_32(PLAT_SDK700_MHU0_SEND + CH_INT_ST0) &
 	     (1 << CH_ID)) == 0x0) ||
@@ -203,52 +215,12 @@ int service_enable_usb_phy(void)
 	delay_in_us(READ_DELAY);
 	mmio_write_32(PLAT_SDK700_MHU0_RECV + CH_CLR, 0xFFFFFFFF);
 
-	/* Save response before ending channel (next sync overwrites buffer) */
-	memcpy(&saved, get_req, sizeof(saved));
-
-	INFO("AIPM GET_RUN: phy_pwr_gating=0x%x\n",
-	     saved.resp_phy_pwr_gating);
+	NOTICE("USB PHY: GET response phy_pwr_gating=0x%x\n",
+	       get_req->resp_phy_pwr_gating);
 
 	mhu_secure_message_end(PLAT_SDK700_MHU0_SEND, 0);
-	delay_in_us(SYNC_DELAY / 2);
 
-	/* === Cycle 2: SET run profile with USB PHY enabled === */
-	if (service_se_sync()) {
-		ERROR("service_se_sync failed for AIPM SET\n");
-		return -1;
-	}
-
-	/* Copy saved GET response as SET request (identical field layout) */
-	memcpy(set_req, &saved, sizeof(aipm_set_run_profile_svc_t));
-	set_req->send_phy_pwr_gating |= USB_PHY_MASK;
-	set_req->header.hdr_service_id = SERVICE_POWER_SET_RUN_REQ_ID;
-	set_req->header.hdr_flags = 0;
-	set_req->header.hdr_error_code = 0;
-	set_req->header.hdr_padding = 0;
-	mhu_secure_message_send(PLAT_SDK700_MHU0_SEND, CH_ID,
-				(uint32_t) set_req);
-	dmb();
-
-	delay_in_us(SYNC_DELAY);
-
-	if (((mmio_read_32(PLAT_SDK700_MHU0_SEND + CH_INT_ST0) &
-	     (1 << CH_ID)) == 0x0) ||
-	    ((mmio_read_32(PLAT_SDK700_MHU0_SEND + CH_INT_ST) &
-	     (1 << CH_ID)) == 0x0) ||
-	    (mmio_read_32(PLAT_SDK700_MHU0_SEND + CH_ST) != 0)) {
-		ERROR("AIPM SET_RUN failed\n");
-		mhu_secure_message_end(PLAT_SDK700_MHU0_SEND, 0);
-		return -1;
-	}
-
-	delay_in_us(READ_DELAY);
-	mmio_write_32(PLAT_SDK700_MHU0_RECV + CH_CLR, 0xFFFFFFFF);
-
-	mhu_secure_message_end(PLAT_SDK700_MHU0_SEND, 0);
-	delay_in_us(SYNC_DELAY / 2);
-
-	INFO("AIPM: USB PHY power enabled (phy_pwr_gating |= 0x%x)\n",
-	     USB_PHY_MASK);
+	NOTICE("USB PHY: GET cycle complete\n");
 	return 0;
 }
 
