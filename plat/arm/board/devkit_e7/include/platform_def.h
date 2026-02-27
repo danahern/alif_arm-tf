@@ -159,6 +159,13 @@
 						0x1000,			\
 						MT_DEVICE | MT_RW | MT_SECURE)
 
+/* CLKCTL_PER_MST: USB_CTRL2 at 0x4903F0AC, PERIPH_CLK_ENA at 0x4903F00C */
+#define CLKCTL_PER_MST_BASE		(0x4903F000)
+#define CLKCTL_PER_MST_MAP		MAP_REGION_FLAT(		\
+						CLKCTL_PER_MST_BASE,	\
+						0x1000,			\
+						MT_DEVICE | MT_RW | MT_SECURE)
+
 
 #if HYPRAM_EN
 /* Map 4MB for copying the DTB */

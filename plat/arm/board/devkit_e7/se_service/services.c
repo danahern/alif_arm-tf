@@ -153,6 +153,15 @@ int service_ospi_write_aes_key(void)
 /* USB PHY power gating bit in AIPM run profile phy_pwr_gating field */
 #define USB_PHY_MASK                    (1 << 1)
 
+/* VBAT power control register — CLEAR bits to enable */
+#define VBAT_PWR_CTRL                   0x1A609008
+#define VBAT_UPHY_PWR_MASK              (1 << 16)  /* PHY power */
+#define VBAT_UPHY_ISO                   (1 << 17)  /* PHY isolation */
+
+/* USB PHY power-on-reset — CLEAR bit to release POR */
+#define CLKCTL_USB_CTRL2                0x4903F0AC
+#define USB_CTRL2_PHY_POR               (1 << 8)
+
 /* @brief Function which sends SE AIPM service requests through MHU0
  *        to enable USB PHY power gating. Uses two separate MHU cycles:
  *        Cycle 1: GET current run profile from SE
@@ -249,6 +258,14 @@ int service_enable_usb_phy(void)
 
 	INFO("AIPM: USB PHY power enabled (phy_pwr_gating |= 0x%x)\n",
 	     USB_PHY_MASK);
+
+	/* === VBAT power control: enable PHY power, disable isolation === */
+	mmio_clrbits_32(VBAT_PWR_CTRL, VBAT_UPHY_PWR_MASK | VBAT_UPHY_ISO);
+
+	/* === Release PHY power-on-reset === */
+	mmio_clrbits_32(CLKCTL_USB_CTRL2, USB_CTRL2_PHY_POR);
+
+	INFO("USB PHY: VBAT power enabled, PHY POR released\n");
 	return 0;
 }
 
