@@ -140,10 +140,6 @@ typedef struct {
   volatile uint32_t send_ip_clock_gating;
   volatile uint32_t send_phy_pwr_gating;
   volatile uint32_t send_vdd_ioflex_3V3;
-  volatile uint32_t send_wakeup_events;
-  volatile uint32_t send_ewic_cfg;
-  volatile uint32_t send_vtor_address;
-  volatile uint32_t send_vtor_address_ns;
   volatile int      resp_error_code;
 } aipm_set_run_profile_svc_t;
 
@@ -160,10 +156,6 @@ typedef struct {
   volatile uint32_t resp_ip_clock_gating;
   volatile uint32_t resp_phy_pwr_gating;
   volatile uint32_t resp_vdd_ioflex_3V3;
-  volatile uint32_t resp_wakeup_events;
-  volatile uint32_t resp_ewic_cfg;
-  volatile uint32_t resp_vtor_address;
-  volatile uint32_t resp_vtor_address_ns;
   volatile int      resp_error_code;
 } aipm_get_run_profile_svc_t;
 
