@@ -186,10 +186,10 @@ else
 $(error Error: Unknown AArch32 instruction set ${AARCH32_INSTRUCTION_SET})
 endif
 
-TF_CFLAGS_aarch32	+=	-mno-unaligned-access
+TF_CFLAGS_aarch32	+=	-mno-unaligned-access -mfloat-abi=soft
 TF_CFLAGS_aarch64	+=	-mgeneral-regs-only -mstrict-align
 
-ASFLAGS_aarch32		=	$(march32-directive)
+ASFLAGS_aarch32		=	$(march32-directive) -mfloat-abi=soft
 ASFLAGS_aarch64		=	$(march64-directive)
 
 WARNING1 := -Wextra

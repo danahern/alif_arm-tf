@@ -221,12 +221,13 @@ void sp_min_main(void)
 	/* Read first word from OSPI XIP and store as marker2 */
 	DBG_MARKER2(*(volatile uint32_t *)0xC0000000);
 #endif
-	/* Enable USB PHY power via SE AIPM service.
-	 * The SE power-gates the USB PHY by default. Without this,
-	 * Linux USB gadget will not enumerate on the host. */
+	/* USB PHY AIPM call temporarily disabled for boot debugging.
+	 * The SE hangs on AIPM GET_RUN after sync succeeds. */
+#if 0
 	if (service_enable_usb_phy()) {
 		WARN("USB PHY power enable failed (non-fatal)\n");
 	}
+#endif
 
 	DBG_MARKER(0x66666666);  /* Before console_flush / jump to BL33 */
 	console_flush();
