@@ -221,13 +221,23 @@ void sp_min_main(void)
 	/* Read first word from OSPI XIP and store as marker2 */
 	DBG_MARKER2(*(volatile uint32_t *)0xC0000000);
 #endif
-	/* USB PHY AIPM call temporarily disabled for boot debugging.
-	 * The SE hangs on AIPM GET_RUN after sync succeeds. */
-#if 0
-	if (service_enable_usb_phy()) {
-		WARN("USB PHY power enable failed (non-fatal)\n");
+	/* Enable USB clocks before jumping to Linux so DWC3 driver can probe */
+	{
+		volatile uint32_t *cgu_clk_ena = (volatile uint32_t *)0x1A602014;
+		volatile uint32_t *periph_clk_ena = (volatile uint32_t *)0x4903F00C;
+		uint32_t val;
+
+		val = *cgu_clk_ena;
+		val |= (7U << 21);  /* bits 21-23: USB clocks */
+		*cgu_clk_ena = val;
+
+		val = *periph_clk_ena;
+		val |= 0x11111113U;  /* USB peripheral clock gates */
+		*periph_clk_ena = val;
+
+		NOTICE("USB clocks enabled: CGU=0x%x PERIPH=0x%x\n",
+			*cgu_clk_ena, *periph_clk_ena);
 	}
-#endif
 
 	DBG_MARKER(0x66666666);  /* Before console_flush / jump to BL33 */
 	console_flush();
