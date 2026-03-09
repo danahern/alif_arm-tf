@@ -239,6 +239,23 @@ void sp_min_main(void)
 			*cgu_clk_ena, *periph_clk_ena);
 	}
 
+#if USB_INIT_HALT
+	/* USB-init-only mode: enable USB PHY via SE AIPM, then halt.
+	 * Used for programming mode where M55_HP runs the USB flasher
+	 * and A32 only needs to configure USB PHY via SE services. */
+	if (service_enable_usb_phy()) {
+		ERROR("service_enable_usb_phy failed\n");
+	} else {
+		NOTICE("USB PHY enabled via SE AIPM\n");
+	}
+	console_flush();
+	NOTICE("USB_INIT_HALT: parking A32 in WFE\n");
+	console_flush();
+	while (1) {
+		__asm__ volatile ("wfe");
+	}
+#endif
+
 	DBG_MARKER(0x66666666);  /* Before console_flush / jump to BL33 */
 	console_flush();
 }
