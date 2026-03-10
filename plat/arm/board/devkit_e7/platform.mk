@@ -8,6 +8,7 @@ $(eval $(call add_define,AES_EN))
 $(eval $(call add_define,FLASH_EN))
 $(eval $(call add_define,HYPRAM_EN))
 $(eval $(call add_define,MODEM_SRAM))
+$(eval $(call add_define,OSPI_NO_XIP_SER))
 $(eval $(call add_define,UART))
 $(eval $(call add_define,USB_INIT_HALT))
 

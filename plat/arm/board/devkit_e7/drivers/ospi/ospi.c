@@ -196,6 +196,13 @@ void ospi_control_ss(OSPI_Type *ospi, uint8_t slave, SPI_SS_STATE state)
 */
 void ospi_control_xip_ss(OSPI_Type *ospi, uint8_t slave, SPI_SS_STATE state)
 {
+#if OSPI_NO_XIP_SER
+    /* E8 OSPI v2.01: XIP_SER register removed. Slave select is automatic
+     * via address bit 28 (0xA/C = slave 0, 0xB/D = slave 1). */
+    (void)ospi;
+    (void)slave;
+    (void)state;
+#else
     ospi_disable(ospi);
 
     if (state == SPI_SS_STATE_ENABLE)
@@ -207,6 +214,7 @@ void ospi_control_xip_ss(OSPI_Type *ospi, uint8_t slave, SPI_SS_STATE state)
         ospi->OSPI_XIP_SER &= ~(1 << slave);
     }
     ospi_enable(ospi);
+#endif
 }
 
 
